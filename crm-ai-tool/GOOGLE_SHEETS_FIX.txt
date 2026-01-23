@@ -1,0 +1,52 @@
+
+╔════════════════════════════════════════════════════════════╗
+║  Google Sheets 연동 오류 해결 (빠른 가이드)                  ║
+╚════════════════════════════════════════════════════════════╝
+
+문제: "URL 인증에 실패했습니다"
+원인: Google OAuth 미설정
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 빠른 해결 (10분)
+
+1️⃣  Google Cloud Console 접속
+   https://console.cloud.google.com/
+
+2️⃣  새 프로젝트 생성
+   - 프로젝트 이름: CRM-AI-Tool
+
+3️⃣  Google Sheets API 활성화
+   - API 및 서비스 → 라이브러리
+   - "Google Sheets API" 검색 → 사용 설정
+
+4️⃣  OAuth 동의 화면 구성
+   - User Type: 외부
+   - 앱 이름: CRM AI Tool
+   - 범위: .../auth/spreadsheets.readonly
+   - 테스트 사용자: 본인 Gmail 추가 (중요!)
+
+5️⃣  OAuth 클라이언트 ID 생성
+   - 사용자 인증 정보 → OAuth 클라이언트 ID
+   - 유형: 웹 애플리케이션
+   - 리디렉션 URI: http://localhost:3000/api/sheets/callback
+
+6️⃣  클라이언트 ID/시크릿 복사
+
+7️⃣  .env.local 업데이트
+   GOOGLE_CLIENT_ID=복사한_클라이언트_ID
+   GOOGLE_CLIENT_SECRET=복사한_시크릿
+
+8️⃣  서버 재시작
+   npm run dev
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  주의사항
+
+- 리디렉션 URI 정확히: http://localhost:3000/api/sheets/callback
+- 끝에 슬래시(/) 없음
+- 테스트 사용자에 본인 이메일 반드시 추가!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

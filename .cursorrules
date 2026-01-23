@@ -1,0 +1,179 @@
+# CRM 메시지 자동 작성 & 성과 예측 툴
+
+## 프로젝트
+- Next.js 15.5, React 19.2.3, TypeScript 5.9
+- Tailwind CSS 4.1, shadcn/ui 2.5.0
+- Vercel Postgres, Drizzle ORM
+- OpenAI GPT-4.1, Google Sheets API
+- 디자인: 토스 스타일 (명확, 직관적, 효율적)
+
+## 코드 스타일
+
+### TypeScript
+- Interface 사용 (type 대신)
+- Const maps (enum 대신)
+- Named exports
+- 함수형 패턴
+
+```typescript
+// Good
+interface Campaign { id: string; }
+const STATUS = { DRAFT: 'draft' } as const;
+export function generateMessages() {}
+
+// Bad
+type Campaign = { id: string; }
+enum Status { DRAFT }
+export default function() {}
+```
+
+### 네이밍
+- 파일: kebab-case.tsx
+- 컴포넌트: PascalCase
+- 함수: camelCase
+- 상수: UPPER_SNAKE_CASE
+
+## Next.js 15 & React 19
+
+### 핵심 규칙
+1. Server Components 우선 (기본값)
+2. 'use client'는 필요시만
+3. Async 런타임: await cookies(), await headers()
+4. 캐싱 명시: cache: 'force-cache'
+5. useActionState 사용 (useFormState deprecated)
+
+```typescript
+// Server Component
+export default async function Page() {
+  const data = await getData();
+  return <div>{data}</div>;
+}
+
+// Client Component
+'use client';
+import { useForm } from 'react-hook-form';
+```
+
+## 디자인 시스템
+
+### 컬러
+- Primary: #5FB3B3
+- Secondary: #1E293B
+- Background: #FFFFFF, #F8FAFC
+- Text: #1E293B, #475569
+
+### 타이포그래피 (Pretendard)
+- H1: 32px Bold
+- H2: 24px Bold
+- Body: 15px Regular
+
+### 간격 (4px 기준)
+- xs:4px, sm:8px, base:16px, lg:24px
+
+### 반응형
+- Mobile: 0-767px
+- Tablet: 768-1023px
+- Desktop: 1024px+
+
+## 비즈니스 로직
+
+### 메시지 포맷
+```typescript
+interface Message {
+  title: string;        // 최대 20자
+  subtitle: string;     // 최대 16자
+  content1: string;     // 최대 22자
+  content2?: string;    // 최대 22자
+  footer: string;       // "수신거부: 마이페이지 > 설정"
+}
+```
+
+### AI 작성 규칙
+- 직관적 표현
+- 감성적/커머셜 표현 금지
+- 제목과 첫째줄 문장 분리
+- 항상 존댓말 사용
+- 글자수 제한 준수
+
+## AI 통합
+
+### OpenAI 프롬프트
+```typescript
+const systemPrompt = `
+당신은 CRM 푸시 메시지 작성 전문가입니다.
+규칙:
+- 제목 최대 20자, 소제목 최대 16자, 내용 줄당 최대 22자
+- 직관적 표현, 감성적/커머셜 표현 금지
+- 제목과 첫째줄 문장 분리
+- 항상 존댓말 사용
+`;
+```
+
+## 데이터 관리
+
+### Drizzle ORM
+```typescript
+export const campaigns = pgTable('campaigns', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  title: text('title').notNull(),
+  messages: jsonb('messages').$type<Message[]>(),
+  status: text('status').default('draft'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+```
+
+### Zod 검증
+```typescript
+export const messageSchema = z.object({
+  title: z.string().max(20),
+  subtitle: z.string().max(16),
+  content1: z.string().max(22),
+});
+```
+
+## 성능 최적화
+1. Server Components로 데이터 페칭
+2. 동적 임포트: dynamic(() => import())
+3. 이미지: next/image
+4. 캐싱: export const revalidate = 300
+5. React cache로 중복 제거
+
+## 핵심 체크리스트
+
+### 항상 기억
+- Server Components 우선
+- Async 런타임 API (await cookies())
+- 캐싱 명시 (cache: 'force-cache')
+- 글자수 제한 (제목 20, 소제목 16, 내용 22)
+- 존댓말 사용
+- Primary 컬러 #5FB3B3
+- 4px 간격 시스템
+
+### Deprecated
+- useFormState → useActionState
+- 동기 cookies(), headers()
+- Default exports
+- Enums
+
+## 자주 쓰는 임포트
+```typescript
+// Next.js
+import { cookies } from 'next/headers';
+import Image from 'next/image';
+
+// React
+import { useActionState } from 'react';
+
+// Forms
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+// DB
+import { db } from '@/lib/db';
+import { eq, desc } from 'drizzle-orm';
+
+// UI
+import { Button } from '@/components/ui/button';
+```
+
+Version: 1.0 | Updated: 2026-01-22
