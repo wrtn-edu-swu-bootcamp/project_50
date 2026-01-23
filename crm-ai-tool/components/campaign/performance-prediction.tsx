@@ -7,6 +7,7 @@ import { PredictionEmptyState } from './prediction-empty-state';
 import { PredictionInsights } from './prediction-insights';
 import { Message } from '@/types';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface PerformancePredictionProps {
   selectedMessage: Message | null;
@@ -29,6 +30,8 @@ interface PredictionResult {
   };
 }
 
+const PREDICT_RATE_LIMIT_KEY = 'ai_predict_rate_limit';
+
 export function PerformancePrediction({
   selectedMessage,
   purpose,
@@ -39,10 +42,65 @@ export function PerformancePrediction({
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  const [remainingTime, setRemainingTime] = useState<number>(0);
+
+  // Check for existing rate limit
+  useEffect(() => {
+    const checkRateLimit = () => {
+      const storedLimit = localStorage.getItem(PREDICT_RATE_LIMIT_KEY);
+      if (storedLimit) {
+        const limitTime = parseInt(storedLimit);
+        const now = Date.now();
+        
+        if (limitTime > now) {
+          setRateLimitUntil(limitTime);
+          setRemainingTime(Math.ceil((limitTime - now) / 1000));
+        } else {
+          localStorage.removeItem(PREDICT_RATE_LIMIT_KEY);
+          setRateLimitUntil(null);
+          setRemainingTime(0);
+        }
+      }
+    };
+
+    checkRateLimit();
+    const interval = setInterval(checkRateLimit, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update remaining time countdown
+  useEffect(() => {
+    if (rateLimitUntil) {
+      const interval = setInterval(() => {
+        const now = Date.now();
+        const remaining = Math.ceil((rateLimitUntil - now) / 1000);
+        
+        if (remaining <= 0) {
+          localStorage.removeItem(PREDICT_RATE_LIMIT_KEY);
+          setRateLimitUntil(null);
+          setRemainingTime(0);
+          setError(null);
+        } else {
+          setRemainingTime(remaining);
+        }
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [rateLimitUntil]);
 
   useEffect(() => {
     if (!selectedMessage) {
       setPrediction(null);
+      return;
+    }
+
+    // Check if rate limited
+    if (rateLimitUntil && Date.now() < rateLimitUntil) {
+      const remaining = Math.ceil((rateLimitUntil - Date.now()) / 1000);
+      setError(`요청 한도를 초과했습니다. ${remaining}초 후 다시 시도해주세요.`);
       return;
     }
 
@@ -63,24 +121,44 @@ export function PerformancePrediction({
         });
 
         if (!response.ok) {
-          throw new Error('Failed to fetch prediction');
+          const errorData = await response.json();
+          
+          if (response.status === 429) {
+            const retryAfter = errorData.retryAfter || 60;
+            const limitUntil = Date.now() + (retryAfter * 1000);
+            
+            localStorage.setItem(PREDICT_RATE_LIMIT_KEY, limitUntil.toString());
+            setRateLimitUntil(limitUntil);
+            setRemainingTime(retryAfter);
+            
+            throw new Error(`요청 한도를 초과했습니다. ${retryAfter}초 후 재시도 가능합니다.`);
+          }
+          
+          throw new Error(errorData.error || 'Failed to fetch prediction');
         }
 
         const data = await response.json();
+        
+        // Clear any existing rate limit on success
+        localStorage.removeItem(PREDICT_RATE_LIMIT_KEY);
+        setRateLimitUntil(null);
+        setRemainingTime(0);
+        
         setPrediction(data);
         if (onPredictionUpdate) {
           onPredictionUpdate(data);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Prediction error:', err);
-        setError('성과 예측을 불러오는데 실패했습니다');
+        setError(err.message || '성과 예측을 불러오는데 실패했습니다');
+        toast.error(err.message || '성과 예측을 불러오는데 실패했습니다');
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchPrediction();
-  }, [selectedMessage, purpose, target, tone]);
+  }, [selectedMessage, purpose, target, tone, rateLimitUntil]);
 
   if (!selectedMessage) {
     return null;
@@ -103,6 +181,21 @@ export function PerformancePrediction({
         {error && (
           <div className="text-center py-12">
             <p className="text-sm text-red-600">{error}</p>
+            {rateLimitUntil && Date.now() < rateLimitUntil && (
+              <div className="mt-4 p-4 bg-[#FEF2F2] border border-[#FEE2E2] rounded-lg">
+                <div className="flex items-center justify-center gap-2 text-[#991B1B]">
+                  <span className="font-medium">
+                    {remainingTime}초 후 자동으로 재시도 가능합니다
+                  </span>
+                </div>
+                <div className="mt-2 w-full bg-[#FEE2E2] rounded-full h-2">
+                  <div 
+                    className="bg-[#EF4444] h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${Math.max(0, 100 - (remainingTime / 60 * 100))}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

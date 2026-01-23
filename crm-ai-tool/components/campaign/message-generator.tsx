@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Message } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -16,6 +16,8 @@ interface MessageGeneratorProps {
   selectedMessage: Message | null;
 }
 
+const RATE_LIMIT_KEY = 'ai_generate_rate_limit';
+
 export function MessageGenerator({
   campaignData,
   onMessageSelect,
@@ -25,8 +27,65 @@ export function MessageGenerator({
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  const [remainingTime, setRemainingTime] = useState<number>(0);
+
+  // Check for existing rate limit on mount and set up timer
+  useEffect(() => {
+    const checkRateLimit = () => {
+      const storedLimit = localStorage.getItem(RATE_LIMIT_KEY);
+      if (storedLimit) {
+        const limitTime = parseInt(storedLimit);
+        const now = Date.now();
+        
+        if (limitTime > now) {
+          setRateLimitUntil(limitTime);
+          setRemainingTime(Math.ceil((limitTime - now) / 1000));
+        } else {
+          // Rate limit expired, clear it
+          localStorage.removeItem(RATE_LIMIT_KEY);
+          setRateLimitUntil(null);
+          setRemainingTime(0);
+        }
+      }
+    };
+
+    checkRateLimit();
+    const interval = setInterval(checkRateLimit, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update remaining time countdown
+  useEffect(() => {
+    if (rateLimitUntil) {
+      const interval = setInterval(() => {
+        const now = Date.now();
+        const remaining = Math.ceil((rateLimitUntil - now) / 1000);
+        
+        if (remaining <= 0) {
+          localStorage.removeItem(RATE_LIMIT_KEY);
+          setRateLimitUntil(null);
+          setRemainingTime(0);
+          setError(null);
+          toast.success('이제 다시 메시지를 생성할 수 있습니다');
+        } else {
+          setRemainingTime(remaining);
+        }
+      }, 1000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [rateLimitUntil]);
 
   const generateMessages = async () => {
+    // Check if rate limited
+    if (rateLimitUntil && Date.now() < rateLimitUntil) {
+      const remaining = Math.ceil((rateLimitUntil - Date.now()) / 1000);
+      toast.error(`요청 한도를 초과했습니다. ${remaining}초 후 다시 시도해주세요.`);
+      return;
+    }
+
     setIsGenerating(true);
     setError(null);
 
@@ -64,12 +123,25 @@ export function MessageGenerator({
         const errorData = await response.json();
         if (response.status === 429) {
           const retryAfter = errorData.retryAfter || 60;
-          throw new Error(`${errorData.error} (${retryAfter}초 후 재시도 가능)`);
+          const limitUntil = Date.now() + (retryAfter * 1000);
+          
+          // Store rate limit in localStorage
+          localStorage.setItem(RATE_LIMIT_KEY, limitUntil.toString());
+          setRateLimitUntil(limitUntil);
+          setRemainingTime(retryAfter);
+          
+          throw new Error(`요청 한도를 초과했습니다. ${retryAfter}초 후 재시도 가능합니다.`);
         }
         throw new Error(errorData.error || '메시지 생성에 실패했습니다');
       }
 
       const data = await response.json();
+      
+      // Clear any existing rate limit on success
+      localStorage.removeItem(RATE_LIMIT_KEY);
+      setRateLimitUntil(null);
+      setRemainingTime(0);
+      
       setMessages(data.messages);
       if (onMessagesGenerated) {
         onMessagesGenerated(data.messages);
@@ -107,13 +179,22 @@ export function MessageGenerator({
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-[#1E293B]">메시지 생성</h2>
         {messages.length > 0 && (
-          <Button
-            onClick={handleRegenerate}
-            variant="outline"
-            disabled={isGenerating}
-          >
-            다시 생성
-          </Button>
+          <div className="flex items-center gap-2">
+            {rateLimitUntil && Date.now() < rateLimitUntil && (
+              <span className="text-sm text-[#EF4444]">
+                {remainingTime}초 후 재시도 가능
+              </span>
+            )}
+            <Button
+              onClick={handleRegenerate}
+              variant="outline"
+              disabled={isGenerating || (rateLimitUntil !== null && Date.now() < rateLimitUntil)}
+            >
+              {rateLimitUntil && Date.now() < rateLimitUntil
+                ? `다시 생성 (${remainingTime}초)`
+                : '다시 생성'}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -125,10 +206,17 @@ export function MessageGenerator({
           <Button
             onClick={generateMessages}
             className="bg-[#5FB3B3] hover:bg-[#4FA3A3]"
-            disabled={isGenerating}
+            disabled={isGenerating || (rateLimitUntil !== null && Date.now() < rateLimitUntil)}
           >
-            메시지 생성
+            {rateLimitUntil && Date.now() < rateLimitUntil
+              ? `메시지 생성 (${remainingTime}초 후 가능)`
+              : '메시지 생성'}
           </Button>
+          {rateLimitUntil && Date.now() < rateLimitUntil && (
+            <p className="text-sm text-[#EF4444] mt-2">
+              요청 한도 초과: {remainingTime}초 후 다시 시도할 수 있습니다
+            </p>
+          )}
         </div>
       )}
 
@@ -148,10 +236,30 @@ export function MessageGenerator({
       )}
 
       {error && (
-        <ErrorMessage
-          message={error}
-          retry={generateMessages}
-        />
+        <div>
+          <ErrorMessage
+            message={error}
+            retry={rateLimitUntil && Date.now() < rateLimitUntil ? undefined : generateMessages}
+          />
+          {rateLimitUntil && Date.now() < rateLimitUntil && (
+            <div className="mt-4 p-4 bg-[#FEF2F2] border border-[#FEE2E2] rounded-lg">
+              <div className="flex items-center gap-2 text-[#991B1B]">
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <span className="font-medium">
+                  {remainingTime}초 후 자동으로 재시도 가능합니다
+                </span>
+              </div>
+              <div className="mt-2 w-full bg-[#FEE2E2] rounded-full h-2">
+                <div 
+                  className="bg-[#EF4444] h-2 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.max(0, 100 - (remainingTime / 60 * 100))}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {messages.length > 0 && !isGenerating && (

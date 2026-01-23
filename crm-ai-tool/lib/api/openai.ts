@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { callGemini, validateGeminiApiKey } from './gemini';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -12,6 +13,9 @@ export interface OpenAIError {
   retryAfter?: number;
 }
 
+// Check if we should use Gemini instead of OpenAI
+const useGemini = process.env.USE_GEMINI === 'true' || !process.env.OPENAI_API_KEY;
+
 export async function callOpenAI(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   options?: {
@@ -20,6 +24,15 @@ export async function callOpenAI(
     responseFormat?: { type: 'json_object' };
   }
 ): Promise<string> {
+  // Use Gemini if configured or if OpenAI key is not available
+  if (useGemini && validateGeminiApiKey()) {
+    console.log('🔄 Using Google Gemini instead of OpenAI');
+    return callGemini(messages, {
+      temperature: options?.temperature,
+      maxTokens: options?.maxTokens,
+    });
+  }
+
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -75,6 +88,11 @@ export async function callOpenAI(
 }
 
 export function validateApiKey(): boolean {
+  // If using Gemini, check Gemini key
+  if (useGemini) {
+    return validateGeminiApiKey();
+  }
+  // Otherwise check OpenAI key
   return !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.startsWith('sk-');
 }
 

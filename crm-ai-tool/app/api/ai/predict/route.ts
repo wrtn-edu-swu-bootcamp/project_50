@@ -32,10 +32,25 @@ export async function POST(request: NextRequest) {
     const prediction = await predictPerformance(message, purpose, target, tone);
 
     return NextResponse.json(prediction);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Prediction API error:', error);
+
+    if (error?.type === 'rate_limit') {
+      return NextResponse.json(
+        { error: error.message, retryAfter: error.retryAfter },
+        { status: 429 }
+      );
+    }
+
+    if (error?.type === 'timeout') {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 408 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Failed to predict performance' },
+      { error: error?.message || 'Failed to predict performance' },
       { status: 500 }
     );
   }
