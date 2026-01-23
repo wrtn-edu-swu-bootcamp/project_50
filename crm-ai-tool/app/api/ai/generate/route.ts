@@ -53,10 +53,23 @@ export async function POST(request: NextRequest) {
 
     let parsedMessages: Message[];
     try {
-      const parsed = JSON.parse(response);
+      // Gemini가 ```json 마크다운으로 응답할 수 있으므로 제거
+      let cleanedResponse = response.trim();
+      if (cleanedResponse.startsWith('```json')) {
+        cleanedResponse = cleanedResponse.slice(7);
+      } else if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.slice(3);
+      }
+      if (cleanedResponse.endsWith('```')) {
+        cleanedResponse = cleanedResponse.slice(0, -3);
+      }
+      cleanedResponse = cleanedResponse.trim();
+      
+      const parsed = JSON.parse(cleanedResponse);
       parsedMessages = Array.isArray(parsed) ? parsed : parsed.messages || [];
     } catch (parseError) {
       console.error('Failed to parse OpenAI response:', parseError);
+      console.error('Raw response:', response);
       return NextResponse.json(
         { error: '메시지 생성 결과를 처리할 수 없습니다' },
         { status: 500 }
